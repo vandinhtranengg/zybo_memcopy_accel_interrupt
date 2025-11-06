@@ -5,7 +5,7 @@
 **Board:** Zybo Z7-10  
 **Tools:** Vivado / Vitis 2022.1  
 **Language:** C / HLS C++
-Note: This guide alsp work with the Zedboard Zynq-7000
+*Note: This guide also work with the Zedboard Zynq-7000*
 ---
 
 ## 🧩 Overview
@@ -16,4 +16,5 @@ The accelerator operates using an **interrupt-driven mechanism**, ensuring synch
 ---
 
 ## 📁 Project Structure
+
 
