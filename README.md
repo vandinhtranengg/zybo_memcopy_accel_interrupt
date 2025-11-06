@@ -5,7 +5,8 @@
 **Board:** Zybo Z7-10  
 **Tools:** Vivado / Vitis 2022.1  
 **Language:** C / HLS C++  
-<span style="color:red">This guide also work with the Zedboard Zynq-7000</span>
+*This guide also work with the Zedboard Zynq-7000*
+
 ---
 
 ## 🧩 Overview
@@ -16,6 +17,7 @@ The accelerator operates using an **interrupt-driven mechanism**, ensuring synch
 ---
 
 ## 📁 Project Structure
+
 
 
 
