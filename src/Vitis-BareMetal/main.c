@@ -40,7 +40,7 @@ static volatile int memcopy_done = 0;
 
 static inline u32 reg(u32 off){ return Xil_In32(MEMCOPY_BASE + off); }
 static inline void wr(u32 off, u32 v){ Xil_Out32(MEMCOPY_BASE + off, v); }
-
+/*
 static void dump_regs(const char* tag){
     xil_printf("[REGS %s] CTRL=%08x GIE=%08x IER=%08x ISR=%08x \r\n",
         tag,
@@ -49,7 +49,7 @@ static void dump_regs(const char* tag){
         reg(MEMCOPY_ACCEL_IER_OFFSET),
         reg(MEMCOPY_ACCEL_ISR_OFFSET));
 }
-
+*/
 void memcopy_isr(void *CallbackRef)
 {
 	//dump_regs("ISR entry");
@@ -64,7 +64,7 @@ void memcopy_isr(void *CallbackRef)
 
     /*explain more why need add this a dummy read "(void)Xil_In32(MEMCOPY_BASE + MEMCOPY_ACCEL_ISR_OFFSET);"
      * Why This Fix Works
-	AXI-Lite writes are posted transactions — they can take several cycles to propagate from the ARM core (PS) to the PL IP.
+	AXI-Lite writes are posted transactions â€” they can take several cycles to propagate from the ARM core (PS) to the PL IP.
 	When the ISR returned too quickly, the interrupt signal (ap_done) was still asserted for a few cycles, so the GIC saw the line still high and re-entered the ISR instantly (interrupt storm).
 	By performing a dummy read right after writing 1 to clear the ISR, you flush the AXI write buffer, forcing the hardware to complete the clear before leaving the ISR.
 	This ensures that the interrupt line is low when the ISR exits, stopping re-triggers.
@@ -121,14 +121,14 @@ int main()
     /* Initialize driver with actual base address (optional) */
     memcopy_accel_init(MEMCOPY_BASE);
 
-    dump_regs("Before Setup interrupt controller");
+    //dump_regs("Before Setup interrupt controller");
 
     /* Setup interrupt controller*/
     if (setup_interrupt_system() != XST_SUCCESS) {
         xil_printf("ERROR: Interrupt setup failed!\r\n");
         return -1;
     }
-    dump_regs("After Setup interrupt controller");
+    //dump_regs("After Setup interrupt controller");
 
 
     /* Buffer sizes and allocation
@@ -176,16 +176,11 @@ int main()
     //memcopy_accel_copy_polling((uint32_t)src_buf, (uint32_t)dst_buf, BYTE_LEN);
     memcopy_accel_start((uint32_t)src_buf, (uint32_t)dst_buf, BYTE_LEN);
 
-    /* Wait for interrupt (ISR will set memcopy_done) */
-    while (!memcopy_done) {
-        /* optionally do other work here */
-    	xil_printf("do sthing here!! \r\n");
-    	xil_printf("do sthing here!! \r\n");
-    	xil_printf("do sthing here!! \r\n");
-    	xil_printf("do sthing here!! \r\n");
-    	xil_printf("do sthing here!! \r\n");
-
-    }
+    
+    /* Sleep until an interrupt wakes the CPU; avoid busy-wait */
+    do {
+        __asm__ volatile ("wfi");   // wakes on any IRQ
+    } while (!memcopy_done);
 
 
     XTime_GetTime(&tEnd);
@@ -245,3 +240,4 @@ int main()
 
     return 0;
 }
+
