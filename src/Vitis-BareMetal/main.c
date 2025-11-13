@@ -40,6 +40,7 @@ static volatile int memcopy_done = 0;
 
 static inline u32 reg(u32 off){ return Xil_In32(MEMCOPY_BASE + off); }
 static inline void wr(u32 off, u32 v){ Xil_Out32(MEMCOPY_BASE + off, v); }
+
 /*
 static void dump_regs(const char* tag){
     xil_printf("[REGS %s] CTRL=%08x GIE=%08x IER=%08x ISR=%08x \r\n",
@@ -50,6 +51,7 @@ static void dump_regs(const char* tag){
         reg(MEMCOPY_ACCEL_ISR_OFFSET));
 }
 */
+
 void memcopy_isr(void *CallbackRef)
 {
 	//dump_regs("ISR entry");
@@ -61,7 +63,6 @@ void memcopy_isr(void *CallbackRef)
 
     memcopy_done = 1;
 
-
     /*explain more why need add this a dummy read "(void)Xil_In32(MEMCOPY_BASE + MEMCOPY_ACCEL_ISR_OFFSET);"
      * Why This Fix Works
 	AXI-Lite writes are posted transactions — they can take several cycles to propagate from the ARM core (PS) to the PL IP.
@@ -70,7 +71,6 @@ void memcopy_isr(void *CallbackRef)
 	This ensures that the interrupt line is low when the ISR exits, stopping re-triggers.
 	So that read acts as a memory barrier or handshake acknowledgment to the hardware.
      */
-
 }
 
 
@@ -121,41 +121,39 @@ int main()
     /* Initialize driver with actual base address (optional) */
     memcopy_accel_init(MEMCOPY_BASE);
 
-    //dump_regs("Before Setup interrupt controller");
-
     /* Setup interrupt controller*/
     if (setup_interrupt_system() != XST_SUCCESS) {
         xil_printf("ERROR: Interrupt setup failed!\r\n");
         return -1;
     }
-    //dump_regs("After Setup interrupt controller");
 
+    xil_printf("\r------------------------------------------\r\n\n");
 
     /* Buffer sizes and allocation
        Use reasonably sized test (must be multiple of 4 in this HLS design) */
-    const uint32_t NUM_WORDS = 512; /* 256 * 4 = 1024 bytes */
+    const uint32_t NUM_WORDS = 8192; /* 8192 * 4 = 36728 bytes (36KB) */
     const uint32_t BYTE_LEN = NUM_WORDS * 4;
 
     /* Allocate buffers in DDR (malloc from heap) */
     uint32_t *src_buf = (uint32_t *)malloc(BYTE_LEN);
     uint32_t *dst_buf = (uint32_t *)malloc(BYTE_LEN);
-    //uint32_t *dst_buf_cpu = (uint32_t *)malloc(BYTE_LEN);
+    uint32_t *dst_buf_cpu = (uint32_t *)malloc(BYTE_LEN);
 
-    /*
+
     if (!src_buf || !dst_buf || !dst_buf_cpu) {
         xil_printf("Error: malloc failed\r\n");
         return -1;
     }
-	*/
+
 
     /* Fill source with pattern and clear destination */
     for (uint32_t i = 0; i < NUM_WORDS; ++i) {
         src_buf[i] = 0xA5A50000u | i;
         dst_buf[i] = 0x0;
-        //dst_buf_cpu[i] = 0x0;
+        dst_buf_cpu[i] = 0x0;
     }
 
-    xil_printf("\nSource buffer at 0x%08x, Dest buffer at 0x%08x, len=%u bytes\r\n",
+    xil_printf("Source buffer at 0x%08x, Dest buffer at 0x%08x, len=%u bytes\r\n",
                (unsigned int)src_buf, (unsigned int)dst_buf, BYTE_LEN);
 
     /* Cache maintenance:
@@ -164,24 +162,28 @@ int main()
          For correct read-after-write, after accelerator finishes we will invalidate dest region. */
     Xil_DCacheFlushRange((unsigned int)src_buf, BYTE_LEN);
     Xil_DCacheFlushRange((unsigned int)dst_buf, BYTE_LEN);
-   // Xil_DCacheFlushRange((unsigned int)dst_buf_cpu, BYTE_LEN);
+    Xil_DCacheFlushRange((unsigned int)dst_buf_cpu, BYTE_LEN);
 
     /* Start accelerator (pass physical addresses).
        In bare-metal on Zynq PL masters access the same address space, so virtual==physical for PS. */
 
     xil_printf("Starting accelerator...\r\n");
     XTime_GetTime(&tStart);
-
     memcopy_done = 0;
     //memcopy_accel_copy_polling((uint32_t)src_buf, (uint32_t)dst_buf, BYTE_LEN);
     memcopy_accel_start((uint32_t)src_buf, (uint32_t)dst_buf, BYTE_LEN);
 
-    
-    /* Sleep until an interrupt wakes the CPU; avoid busy-wait */
-    do {
-        __asm__ volatile ("wfi");   // wakes on any IRQ
-    } while (!memcopy_done);
+    /* Wait for interrupt (ISR will set memcopy_done) */
+//    while (!memcopy_done) {
+//        /* optionally do other work here */
+//    	//xil_printf("do sthing here!! \r\n");
+//
+//    }
 
+    /* Sleep until an interrupt wakes the CPU; avoid busy-wait */
+       do {
+           __asm__ volatile ("wfi");   // wakes on any IRQ
+       } while (!memcopy_done);
 
     XTime_GetTime(&tEnd);
     uint32_t time_accel = (uint32_t)((tEnd - tStart) / (COUNTS_PER_SECOND / 1000000));
@@ -189,7 +191,9 @@ int main()
     xil_printf("Accelerator finished!\r\n");
 
     xil_printf("Copy done!! \r\n");
-    /* Once done, invalidate destination cache region so CPU reads updated data from DDR */
+
+    /* Once done, invalidate destination cache region so CPU reads updated data from DDR;
+     in other words, Invalidate to discard stale cache and read updated data*/
     Xil_DCacheInvalidateRange((unsigned int)dst_buf, BYTE_LEN);
 
     /* Verify */
@@ -205,33 +209,41 @@ int main()
     }
 
     if (errors == 0) {
-        xil_printf("memcopy_accel test PASSED. %u words copied.\r\n", NUM_WORDS);
+        xil_printf("memcopy_accel test PASSED! - %u words copied.\r\n", NUM_WORDS);
     } else {
-        xil_printf("memcopy_accel test FAILED with %d errors.\r\n", errors);
+        xil_printf("memcopy_accel test FAILED!! with %d errors.\r\n", errors);
     }
 
-    /*
+
     XTime_GetTime(&tStart);
     cpu_memcopy(src_buf, dst_buf_cpu, BYTE_LEN);
     XTime_GetTime(&tEnd);
-    time_cpu = (uint32_t)((tEnd - tStart) / (COUNTS_PER_SECOND / 1000000));
+    uint32_t time_cpu = (uint32_t)((tEnd - tStart) / (COUNTS_PER_SECOND / 1000000));
+    Xil_DCacheInvalidateRange((unsigned int)dst_buf_cpu, BYTE_LEN);
 
-	*/
-    xil_printf("\r\n------------------------------------------\r\n");
-    //xil_printf("CPU memcpy done in %d us\r\n", time_cpu);
+    /* Verify cpu copy*/
+    errors = 0;
+    for (uint32_t i = 0; i < NUM_WORDS; ++i) {
+        if (dst_buf[i] != src_buf[i]) {
+            xil_printf("Mismatch at idx %u: src=0x%08x dst=0x%08x\r\n",
+                       i, src_buf[i], dst_buf_cpu[i]);
+            errors++;
+            if (errors > 10) break;
+        }
+
+    }
+
+    xil_printf("\r------------------------------------------\r\n\n");
+    xil_printf("CPU memcpy done in %d us\r\n", time_cpu);
     xil_printf("Accelerator memcpy done in %d us\r\n", time_accel);
-
 
 
     /* Clean up */
     free(src_buf);
     free(dst_buf);
-    //free(dst_buf_cpu);
-
-
+    free(dst_buf_cpu);
 
     xil_printf("Demo complete.\r\n");
-
 
     /* Optionally loop forever */
     while (1) {
@@ -240,4 +252,3 @@ int main()
 
     return 0;
 }
-
